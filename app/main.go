@@ -5,14 +5,12 @@ import (
 	"fmt"
 	"github.com/segmentio/kafka-go"
 	"log"
-	"sync"
-	"time"
+	"net/http"
 )
 
-func Consumer(wg *sync.WaitGroup, topicName string, partition int) {
-	defer wg.Done()
-	wg.Add(1)
+var Conn *kafka.Conn
 
+func Consumer1(topicName string, partition int) {
 	r := kafka.NewReader(kafka.ReaderConfig{
 		Brokers:   []string{"localhost:9092", "localhost:9093", "localhost:9094"},
 		Topic:     topicName,
@@ -26,7 +24,7 @@ func Consumer(wg *sync.WaitGroup, topicName string, partition int) {
 		if err != nil {
 			break
 		}
-		fmt.Printf("message at offset %d: %s = %s\n", m.Offset, string(m.Key), string(m.Value))
+		fmt.Printf("message at offset %d: %s = %s Consumer1\n", m.Offset, string(m.Key), string(m.Value))
 	}
 
 	if err := r.Close(); err != nil {
@@ -35,33 +33,68 @@ func Consumer(wg *sync.WaitGroup, topicName string, partition int) {
 
 }
 
-func main() {
-	topic := "demo-topic"
-	partition := 0
+func Consumer2(topicName string, partition int) {
+	r := kafka.NewReader(kafka.ReaderConfig{
+		Brokers:   []string{"localhost:9092", "localhost:9093", "localhost:9094"},
+		Topic:     topicName,
+		Partition: partition,
+		MaxBytes:  10e6, // 10MB
+		GroupID:   "consumer-group-id",
+	})
 
-	wg := &sync.WaitGroup{}
-
-	conn, err := kafka.DialLeader(context.Background(), "tcp", "localhost:9092", topic, partition)
-	if err != nil {
-		fmt.Println("Error connecting to Kafka:", err.Error())
-		return
+	for {
+		m, err := r.ReadMessage(context.Background())
+		if err != nil {
+			break
+		}
+		fmt.Printf("message at offset %d: %s = %s Consumer2\n", m.Offset, string(m.Key), string(m.Value))
 	}
-	go Consumer(wg, topic, partition)
 
-	err = conn.SetWriteDeadline(time.Now().Add(10 * time.Second))
-	if err != nil {
-		fmt.Println("Error setting write deadline:", err.Error())
-		return
+	if err := r.Close(); err != nil {
+		log.Fatal("failed to close reader:", err)
 	}
-	messages, err := conn.WriteMessages(
-		kafka.Message{Value: []byte("Hello Kafka!")},
-		kafka.Message{Value: []byte("Hello Kafka!")},
+
+}
+
+func PublishMessage(w http.ResponseWriter, r *http.Request) {
+	fmt.Println("Publishing message...")
+
+	_, err := Conn.WriteMessages(
 		kafka.Message{Value: []byte("Hello Kafka!")})
 	if err != nil {
 		fmt.Println("Error writing messages:", err.Error())
 		return
 	}
-	fmt.Printf("Wrote %d messages to topic %s\n", messages, topic)
-	wg.Wait()
+
+	fmt.Printf("Wrote messages to topic\n")
+}
+
+func InitKafkaConnection(topic string, partition int) *kafka.Conn {
+
+	conn, err := kafka.DialLeader(context.Background(), "tcp", "localhost:9092", topic, partition)
+	if err != nil {
+		fmt.Println("Error connecting to Kafka:", err.Error())
+		return nil
+	}
+	fmt.Println("Kafka Connection initialized")
+	return conn
+}
+
+func main() {
+	topic := "demo-topic"
+	partition := 0
+
+	Conn = InitKafkaConnection(topic, partition)
+
+	go Consumer1(topic, partition)
+	go Consumer2(topic, partition)
+
+	http.HandleFunc("/publish", PublishMessage)
+
+	addr := ":3000"
+	if err := http.ListenAndServe(addr, nil); err != nil {
+		fmt.Println("Error while server starting.. ", err.Error())
+		return
+	}
 
 }
