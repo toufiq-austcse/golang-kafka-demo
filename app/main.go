@@ -39,7 +39,7 @@ func Consumer2(topicName string, partition int) {
 		Topic:     topicName,
 		Partition: partition,
 		MaxBytes:  10e6, // 10MB
-		GroupID:   "consumer-group-id",
+		GroupID:   "consumer-group-id-1",
 	})
 
 	for {
