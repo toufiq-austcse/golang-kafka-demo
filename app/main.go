@@ -8,15 +8,15 @@ import (
 	"net/http"
 )
 
-var Conn *kafka.Conn
+var topic = "demo-topic"
+var partition = 0
 
 func Consumer1(topicName string, partition int) {
 	r := kafka.NewReader(kafka.ReaderConfig{
-		Brokers:   []string{"localhost:9092", "localhost:9093", "localhost:9094"},
-		Topic:     topicName,
-		Partition: partition,
-		MaxBytes:  10e6, // 10MB
-		GroupID:   "consumer-group-id",
+		Brokers:  []string{"localhost:9092", "localhost:9093", "localhost:9094"},
+		Topic:    topicName,
+		MaxBytes: 10e6, // 10MB
+		GroupID:  "consumer-group-id",
 	})
 
 	for {
@@ -59,19 +59,27 @@ func Consumer2(topicName string, partition int) {
 func PublishMessage(w http.ResponseWriter, r *http.Request) {
 	fmt.Println("Publishing message...")
 
-	_, err := Conn.WriteMessages(
-		kafka.Message{Value: []byte("Hello Kafka!")})
-	if err != nil {
-		fmt.Println("Error writing messages:", err.Error())
-		return
+	writter := &kafka.Writer{
+		Addr:     kafka.TCP("localhost:9092", "localhost:9093", "localhost:9094"),
+		Balancer: &kafka.LeastBytes{},
 	}
 
-	fmt.Printf("Wrote messages to topic\n")
+	err := writter.WriteMessages(context.Background(), kafka.Message{
+		Topic: topic,
+		Value: []byte("Hello World!"),
+	})
+
+	if err != nil {
+		log.Fatal("failed to write messages:", err)
+	}
+
+	if err := writter.Close(); err != nil {
+		log.Fatal("failed to close writer:", err)
+	}
 }
 
 func InitKafkaConnection(topic string, partition int) *kafka.Conn {
-
-	conn, err := kafka.DialLeader(context.Background(), "tcp", "localhost:9092", topic, partition)
+	conn, err := kafka.Dial("tcp", "localhost:9092")
 	if err != nil {
 		fmt.Println("Error connecting to Kafka:", err.Error())
 		return nil
@@ -81,10 +89,6 @@ func InitKafkaConnection(topic string, partition int) *kafka.Conn {
 }
 
 func main() {
-	topic := "demo-topic"
-	partition := 0
-
-	Conn = InitKafkaConnection(topic, partition)
 
 	go Consumer1(topic, partition)
 	go Consumer2(topic, partition)
